@@ -1,208 +1,84 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+--use ieee.std_logic_unsigned.conv_integer;
 
 
-entity adc_serial_control is
-	generic(
-		CLK_DIV               : integer := 100 );  -- Dijeljenje frenkvencije sa 100, odnosno sa 50Mhz na 0.5 Mhz
-	port (
-	  -- glavni clock sa ploce, 50MHz
-		i_clk                       : in  std_logic;                     -- => PIN_R8
-		i_rstb                      : in  std_logic;                     -- Reset button - vežemo ga za push button => PIN_J15
-		i_conv_ena                  : in  std_logic;                     -- Dozvoli odnosno zabrani ADC , vezano za switch[0] => PIN_M1
-		i_adc_ch                    : in  std_logic_vector(2 downto 0);  -- ADC channel 0-7 - ovdje smo izabrali koji channel preko preostala tri switch-a
-		o_adc_ch                    : out std_logic_vector(2 downto 0);  -- ADC converted channel
-		o_adc_data                  : out std_logic_vector(11 downto 0); -- adc parallel data => vezali smo 8 najvažnijih bita na 8 LED-ova
-		
-		-- ADC interface
-		o_sclk                      : out std_logic;    -- ADC clock 50/16 MHz => PIN_B14
-		o_ss                        : out std_logic;    -- CHIP SELECT => PIN_A10
-		o_mosi                      : out std_logic;    -- Sa ovim biramo channel , na osnovu ocitavanja sa SWITCH-eva => PIN_B10
-		i_miso                      : in  std_logic;    -- Ocitana vrijednost sa AD konvertora 12 bitni podataka => PIN_A9
-		v3v3                        : out std_logic	   -- 3V3 napon radi testiranja, pošto sa izlaznog kanala imamo vrijednost 3V3 da  
-	  );
-	  
-end adc_serial_control;
-architecture rtl of adc_serial_control is
-	constant C_N                      : integer := 16;              	 -- 
-	signal r_counter_clock            : integer range 0 to CLK_DIV; 	 -- Brojac za dijeljenje frenkvencije, 
-	signal r_sclk_rise                : std_logic;                  	 -- detekcija uzlazne ivice
-	signal r_sclk_fall                : std_logic;  					 	 -- detekcija silazne ivice 
-	signal r_counter_data             : integer range 0 to C_N-1;      -- Brojac koji broji podatke, maksimalna vrijednost mu je 15, jer citamo 16 bitni podatak (0 - 15)
-	signal r_tc_counter_data          : std_logic;                     -- PODIŽE SE FLAG KADA ZAVRŠI CIKLUS, KADA JE ovaj brojac na log1, onda je konverzija završena i možemo procitati podatak
-	signal r_conversion_running       : std_logic;  						 -- Ako je vrijednost switch[0] = '1', onda ovo postavimo na log1 i dozvolimo ADC
-	signal r_miso                     : std_logic;  						 -- procitani bit sa izlaza ADC (jedan od 12 bita)
-	signal r_conv_ena                 : std_logic;  						 -- enable ADC convesion
-	signal r_adc_ch                   : std_logic_vector(2 downto 0);  -- Odabrani ADC kanal - varijabla tipa vektor
-	signal r_adc_data                 : std_logic_vector(11 downto 0); -- Procitana vrijednost sa izlaza, smiješta se u vektor od 12 bita
+entity dsp is
+	port(
+		output : out std_logic := '0'
+	);
+end dsp;
+
+architecture bh of dsp is
+component top is
+port(
+	clk: in std_logic
+);
+end component top;
+	signal clk        : std_logic;
+	signal counter    : integer := 0;
+	type lut is array ( 0 to 999) of integer;
+	constant my_lut   : lut := (
+		0 => 0, 1 => 760, 2 => 1244, 3 => 1280, 4 => 870, 5 => 183, 6 => -504, 7 => -915, 8 => -880, 9 => -397, 10 => 361, 11 => 1119, 12 => 1601, 13 => 1634, 14 => 1221, 15 => 531, 16 => -160, 17 => -575, 18 => -544, 19 => -66, 20 => 687, 21 => 1440, 22 => 1915, 23 => 1943, 24 => 1523, 25 => 827, 26 => 129, 27 => -293, 28 => -270, 29 => 200, 30 => 946, 31 => 1690, 32 => 2157, 33 => 2176, 34 => 1748, 35 => 1042, 36 => 334, 37 => -97, 38 => -83, 39 => 377, 40 => 1112, 41 => 1846, 42 => 2302, 43 => 2311, 44 => 1871, 45 => 1155, 46 => 436, 47 => -6, 48 => -4, 49 => 445, 50 => 1169, 51 => 1892, 52 => 2337, 53 => 2334, 54 => 1883, 55 => 1155, 56 => 425, 57 => -29, 58 => -38, 59 => 399, 60 => 1112, 61 => 1823, 62 => 2257, 63 => 2243, 64 => 1781, 65 => 1042, 66 => 301, 67 => -164, 68 => -183, 69 => 244, 70 => 946, 71 => 1647, 72 => 2071, 73 => 2047, 74 => 1575, 75 => 827, 76 => 77, 77 => -397, 78 => -425, 79 => -7, 80 => 687, 81 => 1380, 82 => 1797, 83 => 1765, 84 => 1286, 85 => 531, 86 => -226, 87 => -706, 88 => -740, 89 => -327, 90 => 361, 91 => 1049, 92 => 1461, 93 => 1425, 94 => 942, 95 => 183, 96 => -577, 97 => -1060, 98 => -1097, 99 => -687, 100 => 0, 101 => 687, 102 => 1097, 103 => 1060, 104 => 577, 105 => -183, 106 => -942, 107 => -1425, 108 => -1461, 109 => -1049, 110 => -361, 111 => 327, 112 => 740, 113 => 706, 114 => 226, 115 => -531, 116 => -1286, 117 => -1765, 118 => -1797, 119 => -1380, 120 => -687, 121 => 7, 122 => 425, 123 => 397, 124 => -77, 125 => -827, 126 => -1575, 127 => -2047, 128 => -2071, 129 => -1647, 130 => -946, 131 => -244, 132 => 183, 133 => 164, 134 => -301, 135 => -1042, 136 => -1781, 137 => -2243, 138 => -2257, 139 => -1823, 140 => -1112, 141 => -399, 142 => 38, 143 => 29, 144 => -425, 145 => -1155, 146 => -1883, 147 => -2334, 148 => -2337, 149 => -1892, 150 => -1169, 151 => -445, 152 => 4, 153 => 6, 154 => -436, 155 => -1155, 156 => -1871, 157 => -2311, 158 => -2302, 159 => -1846, 160 => -1112, 161 => -377, 162 => 83, 163 => 97, 164 => -334, 165 => -1042, 166 => -1748, 167 => -2176, 168 => -2157, 169 => -1690, 170 => -946, 171 => -200, 172 => 270, 173 => 293, 174 => -129, 175 => -827, 176 => -1523, 177 => -1943, 178 => -1915, 179 => -1440, 180 => -687, 181 => 66, 182 => 544, 183 => 575, 184 => 160, 185 => -531, 186 => -1221, 187 => -1634, 188 => -1601, 189 => -1119, 190 => -361, 191 => 397, 192 => 880, 193 => 915, 194 => 504, 195 => -183, 196 => -870, 197 => -1280, 198 => -1244, 199 => -760, 200 => 0, 201 => 760, 202 => 1244, 203 => 1280, 204 => 870, 205 => 183, 206 => -504, 207 => -915, 208 => -880, 209 => -397, 210 => 361, 211 => 1119, 212 => 1601, 213 => 1634, 214 => 1221, 215 => 531, 216 => -160, 217 => -575, 218 => -544, 219 => -66, 220 => 687, 221 => 1440, 222 => 1915, 223 => 1943, 224 => 1523, 225 => 827, 226 => 129, 227 => -293, 228 => -270, 229 => 200, 230 => 946, 231 => 1690, 232 => 2157, 233 => 2176, 234 => 1748, 235 => 1042, 236 => 334, 237 => -97, 238 => -83, 239 => 377, 240 => 1112, 241 => 1846, 242 => 2302, 243 => 2311, 244 => 1871, 245 => 1155, 246 => 436, 247 => -6, 248 => -4, 249 => 445, 250 => 1169, 251 => 1892, 252 => 2337, 253 => 2334, 254 => 1883, 255 => 1155, 256 => 425, 257 => -29, 258 => -38, 259 => 399, 260 => 1112, 261 => 1823, 262 => 2257, 263 => 2243, 264 => 1781, 265 => 1042, 266 => 301, 267 => -164, 268 => -183, 269 => 244, 270 => 946, 271 => 1647, 272 => 2071, 273 => 2047, 274 => 1575, 275 => 827, 276 => 77, 277 => -397, 278 => -425, 279 => -7, 280 => 687, 281 => 1380, 282 => 1797, 283 => 1765, 284 => 1286, 285 => 531, 286 => -226, 287 => -706, 288 => -740, 289 => -327, 290 => 361, 291 => 1049, 292 => 1461, 293 => 1425, 294 => 942, 295 => 183, 296 => -577, 297 => -1060, 298 => -1097, 299 => -687, 300 => 0, 301 => 687, 302 => 1097, 303 => 1060, 304 => 577, 305 => -183, 306 => -942, 307 => -1425, 308 => -1461, 309 => -1049, 310 => -361, 311 => 327, 312 => 740, 313 => 706, 314 => 226, 315 => -531, 316 => -1286, 317 => -1765, 318 => -1797, 319 => -1380, 320 => -687, 321 => 7, 322 => 425, 323 => 397, 324 => -77, 325 => -827, 326 => -1575, 327 => -2047, 328 => -2071, 329 => -1647, 330 => -946, 331 => -244, 332 => 183, 333 => 164, 334 => -301, 335 => -1042, 336 => -1781, 337 => -2243, 338 => -2257, 339 => -1823, 340 => -1112, 341 => -399, 342 => 38, 343 => 29, 344 => -425, 345 => -1155, 346 => -1883, 347 => -2334, 348 => -2337, 349 => -1892, 350 => -1169, 351 => -445, 352 => 4, 353 => 6, 354 => -436, 355 => -1155, 356 => -1871, 357 => -2311, 358 => -2302, 359 => -1846, 360 => -1112, 361 => -377, 362 => 83, 363 => 97, 364 => -334, 365 => -1042, 366 => -1748, 367 => -2176, 368 => -2157, 369 => -1690, 370 => -946, 371 => -200, 372 => 270, 373 => 293, 374 => -129, 375 => -827, 376 => -1523, 377 => -1943, 378 => -1915, 379 => -1440, 380 => -687, 381 => 66, 382 => 544, 383 => 575, 384 => 160, 385 => -531, 386 => -1221, 387 => -1634, 388 => -1601, 389 => -1119, 390 => -361, 391 => 397, 392 => 880, 393 => 915, 394 => 504, 395 => -183, 396 => -870, 397 => -1280, 398 => -1244, 399 => -760, 400 => 0, 401 => 760, 402 => 1244, 403 => 1280, 404 => 870, 405 => 183, 406 => -504, 407 => -915, 408 => -880, 409 => -397, 410 => 361, 411 => 1119, 412 => 1601, 413 => 1634, 414 => 1221, 415 => 531, 416 => -160, 417 => -575, 418 => -544, 419 => -66, 420 => 687, 421 => 1440, 422 => 1915, 423 => 1943, 424 => 1523, 425 => 827, 426 => 129, 427 => -293, 428 => -270, 429 => 200, 430 => 946, 431 => 1690, 432 => 2157, 433 => 2176, 434 => 1748, 435 => 1042, 436 => 334, 437 => -97, 438 => -83, 439 => 377, 440 => 1112, 441 => 1846, 442 => 2302, 443 => 2311, 444 => 1871, 445 => 1155, 446 => 436, 447 => -6, 448 => -4, 449 => 445, 450 => 1169, 451 => 1892, 452 => 2337, 453 => 2334, 454 => 1883, 455 => 1155, 456 => 425, 457 => -29, 458 => -38, 459 => 399, 460 => 1112, 461 => 1823, 462 => 2257, 463 => 2243, 464 => 1781, 465 => 1042, 466 => 301, 467 => -164, 468 => -183, 469 => 244, 470 => 946, 471 => 1647, 472 => 2071, 473 => 2047, 474 => 1575, 475 => 827, 476 => 77, 477 => -397, 478 => -425, 479 => -7, 480 => 687, 481 => 1380, 482 => 1797, 483 => 1765, 484 => 1286, 485 => 531, 486 => -226, 487 => -706, 488 => -740, 489 => -327, 490 => 361, 491 => 1049, 492 => 1461, 493 => 1425, 494 => 942, 495 => 183, 496 => -577, 497 => -1060, 498 => -1097, 499 => -687, 500 => 0, 501 => 687, 502 => 1097, 503 => 1060, 504 => 577, 505 => -183, 506 => -942, 507 => -1425, 508 => -1461, 509 => -1049, 510 => -361, 511 => 327, 512 => 740, 513 => 706, 514 => 226, 515 => -531, 516 => -1286, 517 => -1765, 518 => -1797, 519 => -1380, 520 => -687, 521 => 7, 522 => 425, 523 => 397, 524 => -77, 525 => -827, 526 => -1575, 527 => -2047, 528 => -2071, 529 => -1647, 530 => -946, 531 => -244, 532 => 183, 533 => 164, 534 => -301, 535 => -1042, 536 => -1781, 537 => -2243, 538 => -2257, 539 => -1823, 540 => -1112, 541 => -399, 542 => 38, 543 => 29, 544 => -425, 545 => -1155, 546 => -1883, 547 => -2334, 548 => -2337, 549 => -1892, 550 => -1169, 551 => -445, 552 => 4, 553 => 6, 554 => -436, 555 => -1155, 556 => -1871, 557 => -2311, 558 => -2302, 559 => -1846, 560 => -1112, 561 => -377, 562 => 83, 563 => 97, 564 => -334, 565 => -1042, 566 => -1748, 567 => -2176, 568 => -2157, 569 => -1690, 570 => -946, 571 => -200, 572 => 270, 573 => 293, 574 => -129, 575 => -827, 576 => -1523, 577 => -1943, 578 => -1915, 579 => -1440, 580 => -687, 581 => 66, 582 => 544, 583 => 575, 584 => 160, 585 => -531, 586 => -1221, 587 => -1634, 588 => -1601, 589 => -1119, 590 => -361, 591 => 397, 592 => 880, 593 => 915, 594 => 504, 595 => -183, 596 => -870, 597 => -1280, 598 => -1244, 599 => -760, 600 => 0, 601 => 760, 602 => 1244, 603 => 1280, 604 => 870, 605 => 183, 606 => -504, 607 => -915, 608 => -880, 609 => -397, 610 => 361, 611 => 1119, 612 => 1601, 613 => 1634, 614 => 1221, 615 => 531, 616 => -160, 617 => -575, 618 => -544, 619 => -66, 620 => 687, 621 => 1440, 622 => 1915, 623 => 1943, 624 => 1523, 625 => 827, 626 => 129, 627 => -293, 628 => -270, 629 => 200, 630 => 946, 631 => 1690, 632 => 2157, 633 => 2176, 634 => 1748, 635 => 1042, 636 => 334, 637 => -97, 638 => -83, 639 => 377, 640 => 1112, 641 => 1846, 642 => 2302, 643 => 2311, 644 => 1871, 645 => 1155, 646 => 436, 647 => -6, 648 => -4, 649 => 445, 650 => 1169, 651 => 1892, 652 => 2337, 653 => 2334, 654 => 1883, 655 => 1155, 656 => 425, 657 => -29, 658 => -38, 659 => 399, 660 => 1112, 661 => 1823, 662 => 2257, 663 => 2243, 664 => 1781, 665 => 1042, 666 => 301, 667 => -164, 668 => -183, 669 => 244, 670 => 946, 671 => 1647, 672 => 2071, 673 => 2047, 674 => 1575, 675 => 827, 676 => 77, 677 => -397, 678 => -425, 679 => -7, 680 => 687, 681 => 1380, 682 => 1797, 683 => 1765, 684 => 1286, 685 => 531, 686 => -226, 687 => -706, 688 => -740, 689 => -327, 690 => 361, 691 => 1049, 692 => 1461, 693 => 1425, 694 => 942, 695 => 183, 696 => -577, 697 => -1060, 698 => -1097, 699 => -687, 700 => 0, 701 => 687, 702 => 1097, 703 => 1060, 704 => 577, 705 => -183, 706 => -942, 707 => -1425, 708 => -1461, 709 => -1049, 710 => -361, 711 => 327, 712 => 740, 713 => 706, 714 => 226, 715 => -531, 716 => -1286, 717 => -1765, 718 => -1797, 719 => -1380, 720 => -687, 721 => 7, 722 => 425, 723 => 397, 724 => -77, 725 => -827, 726 => -1575, 727 => -2047, 728 => -2071, 729 => -1647, 730 => -946, 731 => -244, 732 => 183, 733 => 164, 734 => -301, 735 => -1042, 736 => -1781, 737 => -2243, 738 => -2257, 739 => -1823, 740 => -1112, 741 => -399, 742 => 38, 743 => 29, 744 => -425, 745 => -1155, 746 => -1883, 747 => -2334, 748 => -2337, 749 => -1892, 750 => -1169, 751 => -445, 752 => 4, 753 => 6, 754 => -436, 755 => -1155, 756 => -1871, 757 => -2311, 758 => -2302, 759 => -1846, 760 => -1112, 761 => -377, 762 => 83, 763 => 97, 764 => -334, 765 => -1042, 766 => -1748, 767 => -2176, 768 => -2157, 769 => -1690, 770 => -946, 771 => -200, 772 => 270, 773 => 293, 774 => -129, 775 => -827, 776 => -1523, 777 => -1943, 778 => -1915, 779 => -1440, 780 => -687, 781 => 66, 782 => 544, 783 => 575, 784 => 160, 785 => -531, 786 => -1221, 787 => -1634, 788 => -1601, 789 => -1119, 790 => -361, 791 => 397, 792 => 880, 793 => 915, 794 => 504, 795 => -183, 796 => -870, 797 => -1280, 798 => -1244, 799 => -760, 800 => 0, 801 => 760, 802 => 1244, 803 => 1280, 804 => 870, 805 => 183, 806 => -504, 807 => -915, 808 => -880, 809 => -397, 810 => 361, 811 => 1119, 812 => 1601, 813 => 1634, 814 => 1221, 815 => 531, 816 => -160, 817 => -575, 818 => -544, 819 => -66, 820 => 687, 821 => 1440, 822 => 1915, 823 => 1943, 824 => 1523, 825 => 827, 826 => 129, 827 => -293, 828 => -270, 829 => 200, 830 => 946, 831 => 1690, 832 => 2157, 833 => 2176, 834 => 1748, 835 => 1042, 836 => 334, 837 => -97, 838 => -83, 839 => 377, 840 => 1112, 841 => 1846, 842 => 2302, 843 => 2311, 844 => 1871, 845 => 1155, 846 => 436, 847 => -6, 848 => -4, 849 => 445, 850 => 1169, 851 => 1892, 852 => 2337, 853 => 2334, 854 => 1883, 855 => 1155, 856 => 425, 857 => -29, 858 => -38, 859 => 399, 860 => 1112, 861 => 1823, 862 => 2257, 863 => 2243, 864 => 1781, 865 => 1042, 866 => 301, 867 => -164, 868 => -183, 869 => 244, 870 => 946, 871 => 1647, 872 => 2071, 873 => 2047, 874 => 1575, 875 => 827, 876 => 77, 877 => -397, 878 => -425, 879 => -7, 880 => 687, 881 => 1380, 882 => 1797, 883 => 1765, 884 => 1286, 885 => 531, 886 => -226, 887 => -706, 888 => -740, 889 => -327, 890 => 361, 891 => 1049, 892 => 1461, 893 => 1425, 894 => 942, 895 => 183, 896 => -577, 897 => -1060, 898 => -1097, 899 => -687, 900 => 0, 901 => 687, 902 => 1097, 903 => 1060, 904 => 577, 905 => -183, 906 => -942, 907 => -1425, 908 => -1461, 909 => -1049, 910 => -361, 911 => 327, 912 => 740, 913 => 706, 914 => 226, 915 => -531, 916 => -1286, 917 => -1765, 918 => -1797, 919 => -1380, 920 => -687, 921 => 7, 922 => 425, 923 => 397, 924 => -77, 925 => -827, 926 => -1575, 927 => -2047, 928 => -2071, 929 => -1647, 930 => -946, 931 => -244, 932 => 183, 933 => 164, 934 => -301, 935 => -1042, 936 => -1781, 937 => -2243, 938 => -2257, 939 => -1823, 940 => -1112, 941 => -399, 942 => 38, 943 => 29, 944 => -425, 945 => -1155, 946 => -1883, 947 => -2334, 948 => -2337, 949 => -1892, 950 => -1169, 951 => -445, 952 => 4, 953 => 6, 954 => -436, 955 => -1155, 956 => -1871, 957 => -2311, 958 => -2302, 959 => -1846, 960 => -1112, 961 => -377, 962 => 83, 963 => 97, 964 => -334, 965 => -1042, 966 => -1748, 967 => -2176, 968 => -2157, 969 => -1690, 970 => -946, 971 => -200, 972 => 270, 973 => 293, 974 => -129, 975 => -827, 976 => -1523, 977 => -1943, 978 => -1915, 979 => -1440, 980 => -687, 981 => 66, 982 => 544, 983 => 575, 984 => 160, 985 => -531, 986 => -1221, 987 => -1634, 988 => -1601, 989 => -1119, 990 => -361, 991 => 397, 992 => 880, 993 => 915, 994 => 504, 995 => -183, 996 => -870, 997 => -1280, 998 => -1244, 999 => -760
+	);
+
+
+	signal x_2 : signed (23 downto 0) := "000000000000000000000000";
+	signal x_1 : signed (23 downto 0) := "000000000000000000000000";
+	signal x_0 : signed (23 downto 0) := "000000000000000000000000";
+	signal x_5 : signed (23 downto 0) := "000000000000000000000000";
+
+	signal a   : signed (23 downto 0) := "000000000001111100000110"; -- 1.938
+	signal b   : signed (23 downto 0) := "000000000001111100000010"; -- 0.939
+	signal c   : signed (23 downto 0) := "000000000000000000000100"; -- 0.001
+	signal d   : signed (23 downto 0) := "000000000000000000001000"; -- 0.002
+
+	signal y_2 : signed (23 downto 0) := "000000000000000000000000";
+	signal y_1 : signed (23 downto 0) := "000000000000000000000000";
+	signal y_0 : signed (23 downto 0) := "000000000000000000000000";
+	signal tmp : signed (47 downto 0) := "000000000000000000000000000000000000000000000000"; -- temp var 
+
+	signal output_1 : integer := 0;
+
 begin
----------------------------------------------------------------------- FSM
+--component map
+u0: top port map (clk);
 
-v3v3 <= '1';
-
--- Ovdje kontrolišemo da li cemo vršiti AD konverziju ili ne putem switch[0]
-
-p_conversion_control : process(i_clk,i_rstb)
-begin
-	if(rising_edge(i_clk)) then
-		-- Na rastucu ivicu glavnog clocka, provjeri da li je switch[0] ON ili OFF i dodijeli tu vrijednost varijabli r_conv_ena (Read conversation enable)
-		r_conv_ena             <= i_conv_ena;
-		if(r_conv_ena='1') then
-		-- ako je switch[0] = '1' , onda je i r_conv_ena = '1' onda postavi r_conversation_runing na vriednost logicke jedinice
-			r_conversion_running   <= '1';
-		elsif(r_conv_ena='0') then
-		-- ako je switch[0g = '0' , onda prekini sve konverzije
-			r_conversion_running   <= '0'; 
-		end if;
-	end if;
-end process p_conversion_control;
-
-
--- Ovdje brojimo procitane podatke, od 0 do 15 (rijec je dužine 16 bita)
-p_counter_data : process(i_clk,i_rstb)
-begin
-	if(rising_edge(i_clk)) then
-		if(r_conversion_running = '1') then
-				-- ovdje brojimo ulazni podatke u FPGA na rastucu ivicu clock-a
-				if(r_sclk_rise='1') then
-					if(r_counter_data<C_N-1) then	
-						-- kada je r_counter_data manji od 15, povecavamo ga i onemogucujemo mogucnost citanja podataka sa izlaza
-						r_counter_data     <= r_counter_data + 1;
-						r_tc_counter_data  <= '0';
-					else
-						-- ako je counter došao do 15, to znaci da je došla cijela 16 bitna rijec te da se informacija 
-						-- može dalje obradivati, filtrirati , etc ..
-						r_counter_data     <= 0;
-						r_tc_counter_data  <= '1';
-					end if;
-				else
-				  r_tc_counter_data  <= '0';
-				end if;
-		 else
-			r_counter_data     <= 0;
-			r_tc_counter_data  <= '0';
-		 end if;
-  end if;
-end process p_counter_data;
-
-
-
--- Ovdje ocitavamo vrijednost sa AD konvertora i smiještamo je u vektor logickih vrijednost r_adc_data;
-p_serial_input : process(i_clk,i_rstb)
-begin
-	if(rising_edge(i_clk)) then
-		r_miso               <= i_miso; -- Smjesti vrijednost jednogbitnog procitanog podatka sa AD konvertora
+	clock: process
+	begin
+		clk <= '0';
+		wait for 1 ps;
 		
-		-- samo ako je pristigla cijela rijec na ulaz FPGA, onda ponovo setuj željeni kanal s kojeg želimo citati
-		if(r_tc_counter_data='1') then
-			r_adc_ch             <= i_adc_ch; -- Ovdje postavljamo vrijednost zadanog ulaznog kanala u varijablu r_adc_ch
-		end if;
-		case r_counter_data is
-			when  4  => r_adc_data(11)  <= r_miso;
-			when  5  => r_adc_data(10)  <= r_miso;
-			when  6  => r_adc_data( 9)  <= r_miso;
-			when  7  => r_adc_data( 8)  <= r_miso;
-			when  8  => r_adc_data( 7)  <= r_miso;
-			when  9  => r_adc_data( 6)  <= r_miso;
-			when 10  => r_adc_data( 5)  <= r_miso;
-			when 11  => r_adc_data( 4)  <= r_miso;
-			when 12  => r_adc_data( 3)  <= r_miso;
-			when 13  => r_adc_data( 2)  <= r_miso;
-			when 14  => r_adc_data( 1)  <= r_miso;
-			when 15  => r_adc_data( 0)  <= r_miso;
-			when others => NULL;
-		end case;
-  end if;
-end process p_serial_input;
+		clk <= '1';
+		wait for 1 ps;
+	end process;
+
+	p_counter_data : process(clk)
+	begin
+		if(rising_edge(clk)) then
+			counter    <= counter + 1;
+			x_5 <= to_signed(my_lut(counter), x_5'length);
 
 
+			x_2 <= x_1;
+			x_1 <= x_0;
+			x_0 <= shift_left(x_5, 12);
 
+			y_2 <= y_1;
+			y_1 <= y_0;
 
--- U ovom dijelu biramo ulazni kanal u ADC konvertor na osnovu 3 switch-a 
-p_serial_output : process(i_clk,i_rstb)
-begin
-	if(rising_edge(i_clk)) then
-		o_ss                 <= not r_conversion_running; -- Ako je omogucena konverzija, spusti CS bit na logicku nulu --
-		
-		-- Kao i u slucaju mijenjanja kanala, da bi procitali rijec odnosno ispisali je na izlazu, mora biti završena cijela 16bitna sekvenca
-		if(r_tc_counter_data='1') then
-			o_adc_ch             <= r_adc_ch; 	-- Procitaj vrijednost zadatog kanala i na osnovu nje odaberi ulazni kanal u ADC --
-
-			-- u ovom dijelu osim paljenja ledica, možemo raditi sa izlaznim podatkom šta hocemo  --
-			o_adc_data           <= r_adc_data; -- pali ledice u zavisnosti od procitanog podatka --
-		end if;
-		
-		-- sclk = '1' by default 
-		-- Ovdje mijenjamo vrijednost clock-a za AD konvertor, tj PRAVIMO OSCILACIJE
-		-- Kada u procesu skaliranja dode vrijeme da se se flag podigne odnosno spusti
-		if(r_conversion_running='1') then  
-			if(r_sclk_rise='1') then
-				-- Ovdje na osnovu countera došlo vrijeme za promjenu skaliranog clock-a sa log0 na log1
-				o_sclk   <= '1';
-			elsif(r_sclk_fall='1') then
-				-- Ovdje na osnovu countera došlo vrijeme za promjenu skaliranog clock-a sa log1 na log0
-				o_sclk   <= '0';
-			end if;
-		else
-			o_sclk   <= '1';
-		end if;
-		
-		-- ako je detektovana padajuca ivica podijeljenog clock-a, onda pošalji 3-bitni podataka na ulaz
-		-- AD konvertora i odaberimo željeni kanal 
-		if(r_sclk_fall='1') then 
-			case r_counter_data is
-				when  2  => o_mosi <= r_adc_ch(2);
-				when  3  => o_mosi <= r_adc_ch(1);
-				when  4  => o_mosi <= r_adc_ch(0);
-				when others => NULL;
-			end case;
-		end if;
-	end if;
-end process p_serial_output;
-
-
-
--- CLOCK divider
-p_counter_clock : process(i_clk,i_rstb)
-begin
-	if(rising_edge(i_clk)) then
-		-- ako je ADC ukljucen
-		if(r_conversion_running = '1') then 
-		
-			-- U ovom slucaju povecavamo brojac r_counter_clock do CLK_DIV - 1, kada dode do te vrijednosti, setujemo ga na 0
-			if(r_counter_clock=(CLK_DIV/2)-1) then
-					
-				-- kada smo došli do polovine intervala, onda podignemo flag za padajucu ivicu
-				-- a spustimo flag za rastucu ivicu
-				-- uvecavamo counter sve do vrijednosti CLK_DIV - 1
-				r_counter_clock            <= r_counter_clock + 1;
-				r_sclk_rise                <= '0';
-				r_sclk_fall                <= '1';
-			elsif(r_counter_clock=(CLK_DIV-1)) then
 			
-				-- Kada dodemo do CLK_DIV - 1, onda podignemo flag za rastucu ivicu
-				-- a spustimo flag za padajucu ivicu
-				-- resetujemo brojac
-				r_counter_clock            <=  0 ;
-				r_sclk_rise                <= '1';
-				r_sclk_fall                <= '0';
-			else
-			
-				-- ako se nalazimo u meduintervalu, povecavamo brojac i spustimo flagove za padajucu i rastucu ivicu
-				r_counter_clock            <= r_counter_clock + 1;
-				r_sclk_rise                <= '0';
-				r_sclk_fall                <= '0';
+			tmp <= ( (y_1 * a) - (y_2 * b) + (x_0 * c) + (x_1 * d) + (x_2 * c) );
+			-- y_0 <= ( (y_1 * 1.938 ) - (y_2 * 0.939) + (x_0 * 0.001) + (x_1 * 0.002) + (x_2 * 0.001) );
+			y_0 <= tmp(35 downto 12);				
+
+			output_1 <= to_integer(y_0(23 downto 11));
+
+			if(counter = 999) then
+				counter <= 0;
 			end if;
-		
-		-- ako konverzija nije omogucena, odnosno ako je u meduvremenu iskljucimo
-		-- spustimo flagove za rastucu i padajucu ivicu
-		-- brojac resetujemo na nulu
-		else
-			r_counter_clock            <=  0 ;
-			r_sclk_rise                <= '0';
-			r_sclk_fall                <= '0';
-		end if;
-	end if;
-end process p_counter_clock;
-end rtl;
+
+		end if;	end process;
+
+end bh;
